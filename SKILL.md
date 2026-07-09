@@ -1,95 +1,168 @@
 ---
 name: software-quality
-description: Audit software against the six signals of software quality (reliability, speed, clarity, efficacy, efficiency, beauty) plus a 20-point interface quality-of-life checklist, distilled from Anthony Hobday's "Notes on software quality". Use for quality audits, polish passes, papercut hunts, UX reviews, or when asked to make software feel higher quality.
+description: Run a software quality audit — six signals (reliability, speed, clarity, efficacy, efficiency, beauty), seven adversarial execution passes, measurable thresholds, code-level smell greps, and a papercut checklist. Use for quality audits, polish passes, papercut hunts, UX reviews, pre-launch checks, or when asked to make software feel higher quality.
 ---
 
 # Software Quality Audit
 
-A framework for finding and fixing quality problems in software, distilled from
-Anthony Hobday's essay ["Notes on software quality"](https://anthonyhobday.com/blog/20260410).
+Framework spine from Anthony Hobday's ["Notes on software quality"](https://anthonyhobday.com/blog/20260410);
+operational detail extends it.
 
 ## Core premise
 
 **Quality is the absence of problems.** You cannot add quality directly — you find
-problems and remove them. The most reliable way to measure quality is to have many
-people (and experts) look hard at the thing. So an audit is a structured problem hunt:
-sweep the software through each signal below, record every problem found, then rank
-by user impact.
+problems and remove them. So an audit is a structured, adversarial problem hunt.
+Two consequences shape how you run it:
 
-Keep two principles in mind while auditing:
-
-- **Diminishing returns.** Going from 80% to 90% quality costs more than getting to
-  80% did. Rank findings so effort lands where users feel it most.
-- **Quality erodes silently.** Problems slip in as changes are made, especially in
-  software that grows. An audit is a point-in-time snapshot — recommend re-running
-  it after significant change, not treating it as done forever.
+- **You must try to break things.** The happy path proves nothing; every signal
+  below has a sabotage angle. If you finish an audit with zero findings, you
+  didn't audit — you demoed.
+- **Diminishing returns are real.** Going from 80% to 90% costs more than getting
+  to 80% did. The report must rank findings so effort lands where users feel it,
+  not where problems were easiest to find.
 
 ## Process
 
-1. **Scope.** Identify what is being audited: a diff, a feature, a screen, a flow,
-   or a whole app. If it's a running interface, actually run it and interact with it
-   (use the project's run/verify tooling) — many problems below are only visible live.
-2. **Sweep the six signals.** Work through each signal in order. For each, actively
-   hunt for problems; don't just confirm the happy path.
-3. **Run the interface checklist.** If the scope includes UI, go through
-   [checklist.md](checklist.md) item by item and note each miss.
-4. **Report.** Output findings as described below. Do not fix anything unless asked —
-   the audit is the deliverable.
+1. **Scope.** Diff, feature, screen, flow, or whole app. Identify the **top 3 user
+   tasks** in scope — most of the audit orbits these. If the software runs, run it;
+   half the passes below only work live.
+2. **Static sweep.** Read the code with the smell greps below before touching the UI.
+3. **Execution passes.** Run the seven passes below against the live software.
+4. **Signal review.** File every finding under one of the six signals, severity-rated.
+5. **Papercut checklist.** For UI scope, walk [checklist.md](checklist.md) item by item.
+6. **Report.** Format below. Audit only — don't fix unless asked.
 
-## The six signals of quality
+## Static sweep — code smells that predict user-facing problems
 
-For each signal, the question to answer and typical problems to hunt for:
+Grep before you click. Each of these correlates with findings you'll confirm live:
 
-### 1. Reliability — does it technically work, all of the time?
-Hunt for: bugs, unhandled errors, race conditions, flaky behavior, crashes, data
-loss, broken edge cases (empty states, huge inputs, slow networks, concurrent use).
+- **Swallowed errors**: bare `except:`/`except Exception: pass`, empty `catch {}`,
+  `.unwrap()`/`!` force-unwraps, ignored error returns, `catch (e) { console.log(e) }`
+  with no user feedback. Every one is a future silent failure (Reliability + Clarity).
+- **N+1 and waterfalls**: queries inside loops, sequential `await`s that could be
+  `Promise.all`, ORM lazy-loads in list renders (Speed).
+- **Missing states**: components with no loading/empty/error branch — search for
+  data-fetching code and check all three exist (Clarity).
+- **Unbounded work**: queries without `LIMIT`, lists without pagination or
+  virtualization, file reads without size checks (Speed + Reliability).
+- **Race invitations**: submit handlers that don't disable/guard against
+  double-fire, non-idempotent POSTs, missing optimistic-lock/version checks
+  (Reliability).
+- **Hardcoded assumptions**: locale (`,` vs `.` decimals), timezone
+  (`new Date()` math without TZ), fixed pixel widths around user text, English
+  string-length assumptions (Reliability + Beauty).
+- **Inconsistent vocabulary**: the same concept under different names across code,
+  UI strings, and docs — it will leak into the interface (Clarity).
 
-### 2. Speed — does it respond instantly, or as near as practical?
-Hunt for: slow initial load, laggy input response, operations that block the UI,
-missing progress feedback on unavoidably long tasks, redundant network round-trips,
-N+1 queries, unnecessary re-renders.
+## Execution passes
 
-### 3. Clarity — does the user understand everything?
-Hunt for: ambiguous labels, jargon, unexplained states, silent failures, error
-messages that don't say what to do next, features whose purpose isn't discoverable,
-inconsistent terminology across screens.
+Run these against the live software, in this order. Each pass has a target signal
+but files findings anywhere.
 
-### 4. Efficacy — can the user actually do what they need to do?
-Hunt for: missing capabilities in the core flow, dead ends, tasks that require
-workarounds or leaving the product, features that exist but don't produce the
-result the user came for.
+1. **First-run pass.** Fresh state, no data, no cookies. Is the empty state
+   designed (explains + offers the primary action) or accidental (blank table,
+   `null`, spinner forever)? Is onboarding survivable without a tour?
+2. **Happy-path pass.** Do the top 3 tasks end to end. **Count clicks and
+   keystrokes** for each — the count is data for the Efficiency review. Note any
+   moment you hesitated: hesitation is a Clarity finding even if you recovered.
+3. **Keyboard-only pass.** Unplug the mouse mentally. Tab order sane? Focus always
+   visible? Enter submits, Escape dismisses? Can every interactive element be
+   reached and operated? Modals trap focus and return it on close?
+4. **Sabotage pass.** Throttle to slow 3G. Go offline mid-action. Double-click
+   every submit. Refresh mid-form. Use the back button mid-flow. Paste a
+   200-character name, an emoji, `"><script>`, a decimal comma, a RTL string.
+   Upload the wrong file type and a 500MB file. Open the same record in two tabs
+   and edit both. Let a session expire, then act.
+5. **Error-path pass.** Trigger every error you can and *read the messages*. Each
+   must say what happened, why (if known), and what to do next — in the user's
+   vocabulary, without blame, without codes-as-messages (`Error: E_FETCH_FAILED`
+   is a finding).
+6. **Resize & stress pass.** Narrow window, 200% browser zoom, OS font scaling,
+   very long user-generated strings in every label slot, 10,000-row list.
+   Truncation with no tooltip, overlap, layout collapse — all findings.
+7. **Squint pass.** Zoom out / screenshot and blur. Does hierarchy survive — do
+   the important things read as important? Then at 100%: spacing consistent to a
+   scale, alignment to a grid, icon stroke weights uniform, one thing visually
+   "off" per screen max.
 
-### 5. Efficiency — can they do it as easily as possible?
-Hunt for: extra clicks/steps in common tasks, missing keyboard shortcuts, forms
-that ask for things the software already knows, no bulk operations where users
-repeat an action, poor defaults that everyone changes.
+## The six signals
 
-### 6. Beauty — is it as aesthetically pleasing as possible?
-Hunt for: misaligned or optically unbalanced elements, inconsistent spacing/type/
-color, visual clutter, missing or janky motion, elements that look "off" even if
-you can't immediately say why (say why — that's the finding).
+Review findings under these, and use each signal's bar to hunt for what the passes missed.
 
-## Output format
+### 1. Reliability — works, all of the time
+The bar: no action loses user data; no state is unrecoverable; concurrent and
+repeated actions are safe (idempotent or guarded); interruption (kill, refresh,
+offline) leaves the system consistent. Edge-case taxonomy worth walking: empty,
+one, many, huge; unicode; timezone/DST boundaries; leap days; clock skew; expired
+auth mid-flow; permissions changing under you.
 
-Produce a report with:
+### 2. Speed — responds instantly, or as near as practical
+Thresholds (from HCI research — RAIL and Nielsen's response-time limits):
+**<100ms** feels instant (button feedback, typing echo, menu open); **<1s** keeps
+flow (page transitions, search results); **>1s needs a progress indicator**;
+**>10s needs a cancel button and a time estimate**. Perceived speed counts:
+optimistic updates, prefetch on hover, skeleton screens over spinners,
+stale-while-revalidate. A fast backend behind a janky main thread is still slow.
 
-1. **Verdict** — one paragraph: overall quality level and the dominant problem theme.
-2. **Findings table** — each problem with: signal, location (file:line or screen/
-   element), description, and severity (high = users hit it in core flows, medium =
-   noticeable but survivable, low = papercut).
-3. **Papercut list** — the interface-checklist misses, as a flat list. Individually
-   small; collectively they are what makes software feel low quality.
-4. **Top 3 fixes** — where effort buys the most quality, per the diminishing-returns
-   principle.
+### 3. Clarity — the user understands everything
+The bar: labels use the user's vocabulary, not the schema's; one concept has
+exactly one name everywhere; every icon-only control has a label or tooltip;
+every state the system can be in is visible and explained (loading, empty, error,
+partial, stale); dates show relative *and* absolute; nothing fails silently.
+Test: could a new user narrate what each screen element does? Every "probably..."
+is a finding.
 
-Be honest in the verdict. Organisations almost never tell the truth about the low
-quality of their products; the audit is only useful if it does.
+### 4. Efficacy — the user can actually do the thing
+The bar: the top 3 tasks complete without leaving the product, without
+workarounds, without asking anyone. Hunt for dead ends (states with no forward
+action), trapped data (no export/import/undo/recover), and the workaround smell —
+if users would keep a spreadsheet on the side, the product is failing at
+something it should do.
+
+### 5. Efficiency — as easily as possible
+The bar, using the counts from pass 2: frequent tasks in the fewest possible
+steps; defaults match what most users pick (a default everyone changes is a
+finding); the software remembers context (last-used folder, previous choices,
+draft state); bulk operations exist wherever users repeat an action; power users
+get shortcuts without novices needing them; first field autofocused; tab order
+matches visual order.
+
+### 6. Beauty — as aesthetically pleasing as possible
+The bar: spacing from a consistent scale (4/8px or equivalent) — measure, don't
+vibe; a deliberate type scale, not ad-hoc sizes; optical alignment where geometry
+lies (icons next to text, triangles in circles); a bounded palette used
+consistently; motion sharing duration/easing tokens; dark mode (if offered) at
+full parity, not an afterthought. "Looks off but I can't say why" is not a
+finding — figure out why; that's the finding.
+
+## Severity rubric
+
+- **Blocker** — data loss, unrecoverable state, core task impossible, security hole.
+- **High** — users hit it in the top 3 tasks; workaround exists but hurts.
+- **Medium** — noticeable on secondary paths, or a top-task annoyance with an
+  easy workaround.
+- **Papercut** — individually trivial; collectively the difference between
+  software that feels crafted and software that feels extruded. Report them all —
+  papercuts are the audit's main cargo, and "if something is low quality, it's
+  usually a reliable sign other things are" cuts both ways.
+
+## Report format
+
+1. **Verdict** — one honest paragraph: overall level, the dominant problem theme,
+   and which signal is weakest. Organisations almost never tell the truth about
+   the low quality of their products; an audit that flatters is worthless.
+2. **Findings table** — signal · location (`file:line` or screen/element) ·
+   description · severity.
+3. **Papercut list** — checklist misses plus pass findings, flat list.
+4. **Top 3 fixes** — where effort buys the most felt quality. Prefer one fix that
+   removes a class of problems (e.g. "add the missing error/empty/loading states
+   everywhere") over three one-offs.
 
 ## Attribution
 
-The six signals, the quality-as-absence-of-problems framing, and the interface
-quality-of-life checklist are Anthony Hobday's, from
-[anthonyhobday.com/blog/20260410](https://anthonyhobday.com/blog/20260410)
-(paraphrased here). Read the full essay — it also covers why quality gets harder
-with scale, and how companies like Linear, Zed, GitLab, and Stripe run dedicated
-quality efforts.
+The six signals, quality-as-absence-of-problems, and the seed of the papercut
+checklist are Anthony Hobday's —
+[anthonyhobday.com/blog/20260410](https://anthonyhobday.com/blog/20260410). The
+essay is worth reading in full for what a skill can't hold: why quality gets
+harder with scale, and how Linear, Zed, GitLab, Automattic, and Stripe structure
+dedicated quality efforts.
